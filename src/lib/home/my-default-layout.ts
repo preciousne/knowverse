@@ -154,3 +154,8 @@ export const MY_PLANET_LAYOUT: DecorPlacement[] = [
   { id: "d-mvxm3839-1", kind: "bush", x: 1.5447, z: 4.0295, rot: 70, scale: 1, color: "#8eaa73" },
   { id: "d-mvxm599l-2", kind: "rock", x: 3.7873, z: -0.3646, rot: 0, scale: 1 },
 ];
+
+/** 取一份默认布局的深拷贝（避免 store 就地修改共享的常量对象） */
+export function defaultPlanetLayout(): DecorPlacement[] {
+  return MY_PLANET_LAYOUT.map((d) => ({ ...d, parts: d.parts ? { ...d.parts } : undefined }));
+}

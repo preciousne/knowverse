@@ -17,6 +17,8 @@ import { ZonePanel } from "./ZonePanel";
 import { DiyWorkbench } from "@/components/space/DiyWorkbench";
 import { saveVariant, variantOf } from "@/lib/home/variants";
 import { DEFAULT_HOME_LAYOUT } from "@/lib/home/home-layout";
+import { defaultPlanetLayout } from "@/lib/home/my-default-layout";
+import { DEFAULT_SURFACE_BED_MOVES } from "@/lib/home/default-surface";
 import { Sky } from "@/components/ui/Sky";
 import { useDecor } from "@/lib/decor";
 import { FlowerSvg } from "@/components/art/Flower";
@@ -260,8 +262,18 @@ export function SpaceApp() {
       const local = loadDecor();
       const localHasBuildings = local.some((d) => isBuildingKind(d.kind));
       if (l.revision === 0) {
-        // 从未保存过：本地已有建筑草稿就沿用；否则套初始布局 + 保留本地旧装饰
-        applyLayout(localHasBuildings ? local : [...DEFAULT_HOME_LAYOUT, ...local.filter((d) => !isBuildingKind(d.kind))]);
+        // 从未保存过：本地已有建筑草稿就沿用；否则套**当前星球的默认格局**
+        // （此前用 DEFAULT_HOME_LAYOUT 的 11 件初始布局，导致新账号与当前星球长得不一样，
+        //   并且因为缺少 __fourzones / __manualPaths / __pondEditable 标记，
+        //   默认草树与布局树并存、SPOTS 池塘与布局池塘并存，出现「打架」）
+        applyLayout(localHasBuildings
+          ? local
+          : [...defaultPlanetLayout(), ...local.filter((d) => !isBuildingKind(d.kind))]);
+        // 地表格局：服务端为空时套用默认快照（四分区标记 / 池塘位置 / 21 个道路点）
+        if (!l.bedMoves || Object.keys(l.bedMoves).length === 0) {
+          setBedMoves({ ...DEFAULT_SURFACE_BED_MOVES });
+          savedSurface.current = surfaceSnap(DEFAULT_SURFACE_BED_MOVES, null, null);
+        }
       } else {
         // H52：v3 及以后的布局以服务端为唯一权威——用户可能故意把建筑全删了，
         // 绝不能用 DEFAULT_HOME_LAYOUT 再补回来（旧版布局才走迁移兜底）。

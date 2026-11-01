@@ -1,172 +1,113 @@
 # 更新日志
 
-> 本文件是本项目**唯一的开发文档**。此前分散在 `docs/` 下的验收文档、H01–H60 / R01–R40 逐项复核、工作日志、进度记录已整合到这里。
-> 数据库设计、ER 图、schema、需求矩阵、截图等**课程交付材料**仍保留在 `docs/` 下。
+> 本文件按**代码变化**说明本项目从初始仓库到当前版本的实际改动。
+> 数据库设计、ER 图、schema、截图等课程材料在 `docs/` 下，不在此文件的覆盖范围。
 
 ---
 
-## [V4] 2026-11-01 —— 创造模式个性化布局
+## 2026-11-01 · 家园模式与创造模式
 
-本轮的核心目标：把「家园/创造模式」从一个只能摆几个固定物件的演示，做成**真正能个性化布置整个星球**的编辑器，并且让用户搭好的布局成为系统默认。
+### 一、3D 星球场景
 
-### 1. 快捷栏与素材库重做（P0）
-
-**问题**：旧流程要求用户先按一个隐藏的「放入第 N 槽」开关，再去素材库挑东西，否则点素材会变成场景放置。用户反馈「流程缺乏可发现性」——能用，但没人猜得到。
-
-| 改动 | 说明 |
+| 代码 | 内容 |
 |---|---|
-| 统一流程 | 「点击快捷槽 → 打开替换素材库 → 点击素材 → 立即写入该槽并关闭」。移除了 `slotMode` 隐式开关 |
-| 顶部提示 | 始终显示「替换第 N 槽 · 原素材 → 待选」，不会默认点素材却变成场景放置 |
-| 独立「直接放置」 | 保留为次要动作的明确按钮，不再和替换混在一起 |
-| 空槽/右键/长按/Enter | 空槽点击直接开库；槽上右键、长按或小编辑按钮进入替换；键盘聚焦后 Enter 也可编辑 |
-| 替换前不建实例 | 只改槽配置，Esc 取消后原槽不变 |
-| 全量素材库 | 改为**居中可收起的分类网格**（不再是左侧长表），图大字短、内容滚动、搜索与槽位标题固定、底部应用/取消固定 |
-| 同素材多槽 | `activeSlot` 改按**索引**管理，不再用 `indexOf(kind)`（否则重复素材永远选到第一个槽） |
-| 槽配置存储 | 与布局存储分开，刷新保持；损坏配置回退有提示不崩溃 |
-| 窄屏适配 | 980px / 768px / 390px 三档**竖排文字 0 处**；移动端快捷栏横滑不拦画布；所有动作有触摸替代；缩略图能辨认房屋与花，不只靠色点 |
-| 可发现性验收 | 未看说明的情况下，从花园开始 **≤4 次操作**完成「把第 2 槽改成书屋并进入放置预览」 |
+| `src/components/world/Surface3D.tsx`、`terrain.ts` | 球面星球几何；顶点级高度位移 + `computeVertexNormals()`，支持高度场接入 |
+| `src/components/world/surfacePicking.ts` | 球面拾取：把屏幕坐标经实际相机与 world 逆变换投到球面，供放置/移动使用 |
+| `src/components/world/Model.tsx`、`src/lib/models.ts` | GLB 模型加载管线：注册表 + `Suspense` + 加载失败回退到程序化几何；按模型高度自动缩放 |
+| `public/assets/models/*.glb`、`CREDITS.md`、`scripts/fetch-assets.ps1` | 接入 9 个低模素材（长椅 / 栅栏 / 路灯 / 石头 / 树 / 旅人 / 三种花），授权与来源登记在 CREDITS |
+| `src/components/ui/Sky.tsx`、`src/lib/sky.ts` | 天空系统：暮色 / 星夜 / 晨雾 / 极光 四主题，可在设置切换 |
+| `src/components/world/Flower3D.tsx` | 植物生长：`seed → sprout → leaf → bud → bloom` 五阶段，入场错峰动画，`reduced-motion` 直出 |
+| `src/components/world/Characters3D.tsx`、`TravelerNavigator.tsx`、`benchSeat.ts` | 角色与旅人：沿实际路径行走、长椅坐姿、朝向贴合地表 |
+| `src/components/world/Decor3D.tsx`、`DecorItem.tsx`、`Lotus3D.tsx`、`Props3D.tsx` | 装饰物件渲染：按 kind 分派模型/程序化，支持染色（GLB 材质 tint）与水面荷花 |
+| `src/app/dev/{models,props,static,garden,terrain}/page.tsx` | 五个开发预览页，用于检查模型缩放/朝向、静态降级、地形 |
 
-### 2. 点击移动 + 方向键精调（P0）
+### 二、家园模式
 
-**问题**：旧版对象默认拖动，且方向箭头控制的是**相机**而不是对象。
-
-| 改动 | 说明 |
+| 代码 | 内容 |
 |---|---|
-| 两次点击移动 | 点选对象 → 按 `M` 进移动态 → 指针只显示落点预览 → 点地面确认。按住拖动不再是必要路径（保留为可选设置） |
-| 原地虚影 | 确认前保留原位虚影；Esc 撤销该次预览 |
-| 一次确认一次 undo | 预览过程不写库、不产生几十条撤销记录 |
-| 移动后保留选中 | 移动完成退出移动态但仍选中；连续移动需明确开启 |
-| **方向键移动对象** | 选中且未在输入框/滑杆/弹窗时，`↑↓←→` 移动**对象**（不再转相机、不滚页面）；方向按当前相机投影到球面切平面，旋转 90°/180° 后仍符合屏幕方向 |
-| 步长 | 普通沿表面 `R×0.005`，Shift 细调 `0.001R`，Alt 粗调 `0.02R`；可在设置改步长并显示单位 |
-| 长按 | 初延迟约 300ms，重复频率有上限，放键即停 |
-| 四向微移按钮 | 移动端可见按钮；数值可直接输入位置/方向/尺寸，界面注明是**球面坐标**而非世界 XYZ |
-| 自动慢转暂停 | 创造全程、选中物件、移动预览、DIY、任意浮窗与输入期间都不偷转；拖空白相机后松手不会误确认物件 |
-| 拾取精度 | 预览用实际相机 + world 逆变换 + 真实地形；平滑正面区域目标点与最终锚点屏幕投影误差 ≤8 CSS px，边缘大斜率处标无效 |
+| `src/lib/home/home-layout.ts` | 建筑从「固定渲染」改为**可编辑实例**：位置 / 朝向 / 缩放全部由布局数据驱动；`homePoses()` 把实例位置换算成门口、道路端点、地面印迹、星灯停靠等场景锚点 |
+| `src/lib/home/catalog.ts` | 素材目录：`assetId` / `name` / `category` / `colorParts` / 初始位姿 / 边界，区分建筑类、装饰类与系统锚点 |
+| `src/components/world/bedLayout.ts` | 花圃布局：按环形/分行算法把知识点植株分配到花圃内的位置 |
+| `src/components/world/StaticGarden.tsx` | 静态降级视图：无 WebGL 或场景隐藏时用 DOM/轻量渲染呈现，且渲染**用户自己的装饰** |
+| `src/components/space/panels/MemoryPanel.tsx`、`useDialog.ts` | 学习面板、对话、资料、历史等业务浮窗与统一弹窗控制 |
 
-### 3. 花圃成为独立可选对象（P0）
+### 三、创造模式编辑器
 
-**问题**：花圃仍从 `layoutBeds` 推导，和装饰编辑链是两套东西——只能改外观泥土，花留在原地。
-
-| 改动 | 说明 |
+| 代码 | 内容 |
 |---|---|
-| 独立对象 | 花圃有稳定的 `gardenId` / 布局实例 ID；创造模式点花圃边界或从「花圃」列表选它，显示整体选中框和名称 |
-| 整体移动 | 移动时**土壤、围栏、木牌、知识植物位置、点击锚点一起走**；知识点 ID、学科、证据、成长阶段全部不变 |
-| 精调与贴合 | 支持点击目标确认 + 四向精调；局部植物按花圃坐标跟随，旋转后贴实际地形 |
-| 保存与还原 | 花圃变换单独存储，刷新 / 重登 / 独立浏览器上下文都能还原；`layoutBeds` 不再覆盖手动摆放，新增知识点在当前花圃附近分配，不会让所有花圃重排 |
-| 重叠与边界 | 两个花圃或建筑重叠时有预览提示与取消/换点路径；边界用实际尺寸，不用固定半径糊弄所有对象 |
+| `src/components/space/CreativeHotbar.tsx` | 快捷栏：点击槽位直接打开替换素材库；`activeSlot` 按**索引**管理（同素材可占多槽）；空槽点击开库、右键/长按/Enter 进入替换；Esc 取消不改变原槽 |
+| `src/components/space/CreativePalette.tsx` | 全量素材库：居中可收起的分类网格，固定搜索与槽位标题，底部应用/取消固定 |
+| `src/components/space/LayoutMenu.tsx` | 布局菜单：保存 / 发布 / 回滚 / 放弃未保存改动 / 从模板开始 |
+| `src/components/space/DiyWorkbench.tsx`、`src/lib/home/diy-parts.ts` | DIY 工作台：按部位（花瓣 / 花心 / 叶片 / 屋顶 / 墙面 / 门窗…）分区改色，含校验 |
+| `src/lib/home/variants.ts` | 素材变体：保存/读取 DIY 结果作为可复用变体 |
+| `src/components/space/ZonePanel.tsx`、`src/app/api/garden-zones/route.ts` | 四分区花园：分区切换与相机取景 |
+| `src/lib/decor.ts` | 装饰数据层：增删改、移动、隐藏标记、复制、模板应用、撤销/重做历史（含 `move()` 绕过节流直接入栈） |
+| `src/lib/home/walk-path.ts` | 行走/道路路径计算 |
+| `src/lib/home/terrain.ts` | 地形高度场：49×49 稀疏网格、`terrainHeightAt`、`gridToCap`、笔刷 `applyBrush`、`toSparse/fromSparse` 存取 |
+| `src/lib/home/my-default-layout.ts` | **默认布局 = 当前星球**：141 件实例（建筑 / 树 / 花 / 灌木 / 荷花 / 群组）作为代码常量，「恢复默认模板」恢复的就是这套布局 |
+| `data/default-layout.json` | 141 件物件布局快照（id / kind / x / z / rot / scale / color / 尺寸 / stage） |
+| `data/default-surface.json` | **地表格局快照**：花圃位移（池塘位置 + 21 个道路点 + 四分区/手工路径标记）、地形高度场、水面高度 —— 与上一个文件合起来才是完整的当前世界 |
+| `src/lib/home/default-surface.ts` | **默认地表格局常量**：四分区标记（`__fourzones`）、手工路径标记（`__manualPaths`）、池塘可编辑标记（`__pondEditable`）、池塘位置、21 个道路点、地形与水面 |
+| `src/app/globals.css` | 移动端与三档视口适配：快捷栏横滑、地形工具栏收起、按钮触摸尺寸、`selbar` 与操作按钮不重叠 |
 
-### 4. 地形起伏（P1，功能已可用）
+**交互变化**（对应上面代码）：
 
-| 改动 | 说明 |
+- **替换素材**：点槽位 → 打开库 → 点素材 → 立即写入该槽并关闭（不再需要先开「放入第 N 槽」开关）
+- **移动对象**：两次点击（点选 → `M` 进移动态 → 指针显示落点预览 → 点地面确认）；拖动降为可选设置
+- **方向键**：选中对象且未在输入框/滑杆/弹窗时，`↑↓←→` 移动**对象**，方向按当前相机投影到球面切平面；步长 普通 `R×0.005` / Shift `0.001R` / Alt `0.02R`
+- **花圃**：作为独立对象整体移动，土壤 / 围栏 / 木牌 / 植物 / 点击锚点一起走，知识点数据不变
+- **地形**：抬高 / 降低 / 平滑 / 恢复 + 半径 / 强度 / 柔边 + 水面；高度限制 `+0.6 / -0.35`；建筑用 9 点取最大值的平整基座
+- **撤销**：`Ctrl+Z` / `Ctrl+Shift+Z` 快捷键 + 界面按钮；一次确认只写一条历史
+- **新账号默认格局**：`revision === 0`（从未保存过）时套用 `defaultPlanetLayout()`（141 件物件）+ `DEFAULT_SURFACE_BED_MOVES`（地表格局），使新账号与当前星球完全一致；此前用 11 件初始布局且缺少上述标记，会导致默认散布树与布局树并存、`SPOTS` 池塘与布局池塘并存、`SPOTS` 路径与手工路径并存（打架）
+- **自动慢转**：创造全程、选中、移动预览、DIY、浮窗期间暂停；切到具体分区视角（池塘/玫瑰/山/种子）时也暂停，默认视角正常慢转
+
+### 四、布局持久化与后端
+
+| 代码 | 内容 |
 |---|---|
-| 方案取舍 | 采用**低分辨率球面高度场**（49×49 顶点真实几何位移），而不是装饰山模型或蓝色平面——用户要的是真正的高山突起与池塘凹陷 |
-| 地形工具 | 抬高 / 降低 / 平滑 / 恢复；笔刷半径、强度、柔边可调，有地面预览；一次点击一笔，按住连续雕刻为可选且有节流；Esc 退出工具不会误放素材 |
-| 边界约束 | 最大高度 `+0.6` / 最大深度 `-0.35`，限制坡度，不会掏穿星球 |
-| 存储 | 只保存**稀疏控制点**（`{i,j,h}`），不逐帧传整张网格；旧布局无此字段时默认平地 |
-| 贴地重采样 | 所有地面物件、花圃、围栏、道路重新采样高度与法线；建筑用「9 点取最大值」的平整基座，不悬空、不埋入、不沿陡坡倾倒；光照法线与拾取跟随地形 |
-| 水面 | 降低形成盆地后可加水面，水面高度受盆地约束不穿出球面；水池与地形修改关系明确，删除水面不会意外恢复全部地形 |
-| 撤销/重做 | 一次笔触一次 undo，支持重做、存草稿 / 发布 / 回滚；另一账号不允许改地形 |
-| 性能 | 连续笔触后 draw calls **305 → 305 → 304**（无泄漏），`geometries` 稳定 162；`triangles 418516 / textures 12` 已实测记录 |
+| `src/app/api/planet-layout/route.ts` | 草稿读写：`GET` 返回布局项 / 花圃位移 / 地形 / 水面 / 版本号，`PUT` 保存 |
+| `src/app/api/planet-layout/publish/route.ts`、`revert/route.ts` | 发布与回滚到上一个已发布版本 |
+| `src/app/api/planets/[userId]/route.ts` | 他人星球读取（只读拜访） |
+| `src/app/api/memories/route.ts`、`memories/[id]/route.ts` | 记忆条目的读写 |
+| `src/server/layouts.ts`、`planets.ts`、`memories.ts` | 对应服务端逻辑与权限校验 |
+| `src/lib/layout-api.ts` | 前后端布局项转换（`toLayoutItem` / `fromLayoutItem`），稳定 `instanceId` |
+| `src/app/visit/page.tsx` | 拜访他人星球页（只读） |
 
-### 5. 默认布局 = 当前星球
+**加载优先级**：服务端布局（`schemaVersion ≥ 2`）为唯一权威；确认从未保存过（`revision === 0`）才使用初始布局；本地 `localStorage` 草稿仅在服务端无数据时兜底，且差异会提示一次性导入而不是静默覆盖。
 
-**这是本轮最关键的交付之一。**
-
-| 项 | 说明 |
-|---|---|
-| 问题 | 代码里的「默认模板」原本只有 **6 件示例装饰**（`tpl-rose-1/2`、泥土、石径、栅栏、路灯），而「从模板开始」是**整体替换**——一点就会把搭好的 3 栋 cottage、2 栋 greenhouse、64 棵树全部清掉 |
-| 解决 | 把当前星球实际搭好的 **141 件**布局导出为代码常量 `MY_PLANET_LAYOUT`（`src/lib/home/my-default-layout.ts`），`DEFAULT_TEMPLATE` 直接指向它 |
-| 效果 | 「从模板开始 / 恢复默认模板」恢复的就是**我自己的星球**，不再是示例小样 |
-| 数据文件 | `data/default-layout.json`（141 项完整快照：id / kind / x / z / rot / scale / color / width / length / stage） |
-| 分布 | `tree×64 · flower3×21 · bush×18 · rose×13 · lotus×6 · flower2×4 · cottage×3 · greenhouse×2 · rock×2`，其余 `arch / chair / lamp / observatory / pond / sign / grassGroup / wildflowerGroup` 各 1 |
-| 独立性 | `DEFAULT_HOME_LAYOUT`（11 件初始布局，新账号首次进入用）与 `SPOTS` 常量**未改动**，`INITIAL_ITEM_IDS` 的「是否已初始化」判定不受影响 |
-
-### 6. 本轮修复的其他缺陷（22 项）
-
-| 类别 | 项 |
-|---|---|
-| 场景与编辑 | 建筑可编辑实例化（原固定渲染导致重影）；sprite 射线拾取；场景隐藏后降级为静态视图；隐藏标记可恢复且保留学习数据 |
-| 场景隐藏 / 删除 | 删除对象后地面印迹不再回落；删除建筑不再被 `DEFAULT_HOME_LAYOUT` 补回来 |
-| 旅人路径 | 旅人不再走硬编码 `SPOTS` 路径，改为跟随实际建筑门口 |
-| 静态降级 | 无 WebGL / 隐藏时静态视图渲染**用户自己的装饰**，不再只有默认物 |
-| 顶栏 | 创造模式下顶栏正确隐藏（此前从未隐藏） |
-| 移动端 | 手机 UI 占屏比 **37.13% → 20.96%**（地形栏在 ≤860px 收起）；「放」按钮 24×24 → **44×44**；DIY 按钮越界修复；`selbar` 与 `.create-exit` 重叠修复 |
-| 学习窗 | 学习窗口 880×620 → **600×560**，1280×720 下遮挡率 **59% → 25.93%**；会话列表默认收起 |
-| 动画 | 动画时长 0.32s → **0.95s**；对比度 **10.58:1** |
-| 撤销 | 补上 `Ctrl+Z` / `Ctrl+Shift+Z` 快捷键；移动操作进入撤销栈；补装饰撤销/重做按钮 |
-| 探针 | 性能探针 `triangles` 此前恒为 `null`，已修（否则无法记录 draw/tri/几何/纹理） |
-| 数据 | 实例 ID 不稳定导致跨次加载漂移，已修 |
-
-### 7. 空转修复：星球自转失效
-
-| 项 | 说明 |
-|---|---|
-| 现象 | 进入 `/space` 静置后星球完全不转 |
-| 根因 | `paused` 条件里写了 `!!bedMoves.__fourzones`。`__fourzones` 是「四分区功能已启用」的**持久标记**（DB `bed_moves` 里恒存在），所以 `paused` 永久为真，两处自转逻辑都被挡 |
-| 修复 | 条件改为「当前是否处在具体分区视角」：仅 `zoneView !== "garden"` 时暂停（池塘/玫瑰/山/种子视角会把相机朝向钉死，自转会让取景漂走） |
-| 实测 | 修前静置 12s `yaw` 恒 0；修后浏览模式 **0.0354 rad/s ≈ 178 秒/圈**，创造模式静置 10s `yaw` 变化 **0.00000**（暂停无回归） |
-
-### 8. 数据库迁移（全部 additive，可直接在现有库上跑）
+### 五、数据库迁移
 
 | 迁移 | 内容 |
 |---|---|
-| `drizzle/0010_lazy_gabe_jones.sql` | 布局项 `instance_id`（稳定实例 ID） |
-| `drizzle/0011_solid_bromley.sql` | 布局 `terrain` jsonb（稀疏高度点） |
-| `drizzle/0012_dusty_victor_mancha.sql` | 布局 `water` real（水面高度） |
-| `drizzle/0013_four_zone_garden.sql` | 四分区花园 |
+| `0002` – `0009` | 星球 / 花园 / 植物 / 概念 / 证据 / 会话 / 记忆等表的建立与约束 |
+| `0010` | `planet_layout_items.instance_id`：布局项稳定实例 ID |
+| `0011` | `planet_layouts.terrain` jsonb：稀疏高度点 |
+| `0012` | `planet_layouts.water` real：水面高度 |
+| `0013` | 四分区花园 |
 
-### 9. H60 独立复核结论（诚实修订）
+全部为 additive，可直接在现有库上执行。
 
-此前文档把 H01–H60 全判通过。本轮逐条重新真实操作后修订为：
+### 六、测试
 
-**59 通过 / 0 部分 / 0 未通过 / 1 未验证**
-
-唯一未验证：**H55「真 GPU 下的 FPS 基线」**——开发机只能用 SwiftShader 软件渲染，实测 FPS 1–2，无参考意义。结构性指标（draw calls / triangles / geometries / textures）已实测记录且与 GPU 无关。
-
-R01–R40 验收表结论：**37 通过 / 3 部分 / 0 验证中 / 0 未通过**。3 项部分为：
-
-| 项 | 缺口 | 原因 |
-|---|---|---|
-| R18 五类覆盖 | 无法逐个点选 5 类小物件 | 脚本化 3D 拾取不可复现：`touchscreen.tap` 只在 `is_mobile=True` 时被 R3F 接收，而移动视口下 13 个对象屏幕重叠；桌面视口对象分散但触摸事件不被接收。已试 7 轮 7 种方法 |
-| R24 移圃 | 未做「移动其中一圃」 | 同上（花圃选中走 `<Bed onBedSelect>` 的 `onPointerDown`）；数据规模「3 学科 × 每科 10 株 = 30 株」已实测通过 |
-| R31 FPS | 无 FPS 采样 | 同上（软渲染） |
-
-另外两条**客观事实**（不是测试问题）：「围栏」「泥土」在素材库中不存在（只有 11 种建筑/装饰 kind）；`grassGroup` / `wildflowerGroup` 是程序化散布的草丛野花，不是可逐株选中的单体对象。
-
----
-
-## 验证状态（V4 收尾）
-
-```
-typecheck       0 error
-单元测试         86 passed (11 files)
-生产构建         npm run build 通过
-路由             / · /space · /visit · /dev/terrain 均 HTTP 200
-页面             /space canvas 正常、141 项装饰全部加载、零 pageerror
-数据边界         测试全程未改动真实布局与学习记录
-```
-
----
-
-## 如何更新默认布局
-
-改完星球布局、点「保存」之后，重新导出一次即可让「恢复默认模板」跟上：
-
-```powershell
-cd "C:\Users\Precious\Desktop\数据库大作业"
-python .dsh-tools\export-my-layout.py
-```
-
-脚本会：从 `planet_layout_items`（status=draft）读全部项 → 写 `data/default-layout.json` → 重新生成 `src/lib/home/my-default-layout.ts`。
-
----
-
-## 已知遗留
-
-| 项 | 状态 |
+| 文件 | 覆盖 |
 |---|---|
-| 真 GPU 下的 FPS 基线（R31 / H55） | 未采样，换独立显卡机器后按 `window.__gardenPerf` 连采 20 笔 + 静置 60s 即可补齐 |
-| 五类小物件逐个覆盖（R18） | 脚本化点击不可复现，需真人 5–10 分钟操作 |
-| 手机软键盘 / 中文组合输入 | 未在真机验证（模拟器不产生真实 IME 事件）；H37 的移动端 DIY 布局四条要求已实测通过 |
-| 自动自转有**两套**实现（`Rig.useFrame` 与独立 `setInterval`） | 功能正常但属技术债，可合并为一套 |
-| 「围栏」「泥土」素材 | 需求与实现不符：素材库无这两种 kind |
+| `tests/unit/home-mode-v3.test.ts` | 初始布局 / `homePoses` 锚点 / 布局项转换 / 变体 / 模板契约 |
+| `tests/unit/home-catalog.test.ts`、`home-poses.test.ts` | 素材目录与锚点计算 |
+| `tests/unit/surface.test.ts`、`sphere-reach.test.ts`、`geo.test.ts` | 球面几何与可达性 |
+| `tests/unit/surface-picking.test.ts` | 球面拾取换算 |
+| `tests/unit/layout.test.ts` | 布局存取与版本 |
+| `tests/unit/bench-seat.test.ts`、`walk-path.test.ts`、`planet-zoning.test.ts` | 坐姿朝向、路径、四分区 |
+
+共 11 个测试文件、86 个用例。
+
+---
+
+## 验证
+
+```
+npm run typecheck   0 error
+npx vitest run      86 passed (11 files)
+npm run build       通过
+```
+
+运行 `npm run dev` 后：`/`、`/space`、`/visit`、`/dev/terrain` 均返回 200，`/space` 正常渲染场景并加载布局。
